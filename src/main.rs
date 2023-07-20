@@ -2,6 +2,26 @@ use std::fs::File;
 use std::{fs, io};
 use std::io::{Read, Write};
 use chrono::Utc;
+use clap::{Parser};
+
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    // File size in bytes at which the file is renamed and a new file is written
+    #[arg(short, long, default_value_t = 134217728)]
+    file_size_limit: u64,
+
+    // The number of files to keep
+    #[arg(short, long, default_value_t = 2)]
+    file_count_limit: u32,
+
+    // If false the data is not written to stdout
+    #[arg(short, long, default_value_t = true)]
+    write_to_stdout: bool,
+
+    // The file to write to
+    file: String,
+}
 
 struct Context {
     file_size_limit: u64,
@@ -12,6 +32,8 @@ struct Context {
 }
 
 fn main() -> () {
+    let args = Args::parse();
+
     const BUFFER_SIZE: usize = 1024;
     let mut buffer = [0u8; BUFFER_SIZE];
 
@@ -19,7 +41,7 @@ fn main() -> () {
 
     let mut handle = stdin.lock();
 
-    let mut context = create_context(String::from("/tmp/file.log")).unwrap();
+    let mut context = create_context(&args).unwrap();
 
 
     loop {
@@ -53,14 +75,12 @@ fn main() -> () {
     println!("Hello, world!");
 }
 
-fn check_and_rotate(context: &mut Context) -> Result<Option<Context>, std::io::Error> {
+fn check_and_rotate(context: &mut Context) -> Result<Option<Context>, io::Error> {
     let file_metadata = context.current_file.metadata().unwrap();
     let file_size = file_metadata.len();
 
     if file_size > context.file_size_limit {
         // rotate
-        println!("Rotatefile: file_size {} ", file_size);
-
         let roll_file_name = roll_file_name_from(&context.current_file_path);
 
         fs::rename(&(context.current_file_path), &roll_file_name)?;
@@ -91,8 +111,11 @@ fn roll_file_name_from(path: &String) -> String {
     return roll_file_name;
 }
 
-fn create_context(file_path: String) -> io::Result<Context> {
-    let current_file_res = File::create(file_path.clone());
+fn create_context(args: &Args) -> io::Result<Context> {
+
+    let file_path = args.file.clone();
+
+    let current_file_res = File::create(file_path);
 
     match current_file_res {
         Ok(_) => {
@@ -106,13 +129,14 @@ fn create_context(file_path: String) -> io::Result<Context> {
     let current_file = current_file_res.unwrap();
 
     return Ok(Context {
-        current_file_path: file_path.clone(),
+        current_file_path: args.file.clone(),
         current_file,
-        file_size_limit: 1024 * 1024 * 128,
-        file_count_limit: 3,
+        file_size_limit: args.file_size_limit,
+        file_count_limit: args.file_count_limit,
     });
 }
 
 fn handle_std_bytes(context: &mut Context, buff: &[u8; 1024], len: usize) -> io::Result<()> {
+    println!("{}", String::from_utf8_lossy(buff));
     return context.current_file.write_all(&buff[..len]);
 }
