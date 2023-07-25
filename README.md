@@ -23,9 +23,6 @@ e.g `command | tee2 myfile.log`
  3. if the log-file-count is 3 when we have `myfile_{i}.log, myfile_{i=1}.log, myfile_{i+2}.log`, `myfile_{i}.log` is deleted
 
 
-
-
-
 ## Objectives
 
 * Log rotation
