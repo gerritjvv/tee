@@ -26,7 +26,7 @@ e.g `command | tee2 myfile.log`
 
 
 
-## Objeectives
+## Objectives
 
 * Log rotation
 * Log truncation
