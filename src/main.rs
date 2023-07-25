@@ -1,6 +1,6 @@
 use std::fs::File;
 use std::{fs, io};
-use std::io::{Read, Write};
+use std::io::{Error, Read, Write};
 use chrono::Utc;
 use clap::{Parser};
 
@@ -8,11 +8,11 @@ use clap::{Parser};
 #[command(author, version, about, long_about = None)]
 struct Args {
     // File size in bytes at which the file is renamed and a new file is written
-    #[arg(short='s', long, default_value_t = 134217728)]
+    #[arg(short = 's', long, default_value_t = 134217728)]
     file_size_limit: u64,
 
     // The number of files to keep
-    #[arg(short ='l', long, default_value_t = 2)]
+    #[arg(short = 'l', long, default_value_t = 2)]
     file_count_limit: u32,
 
     // If false the data is not written to stdout
@@ -37,6 +37,7 @@ fn main() -> () {
     const BUFFER_SIZE: usize = 1024;
     let mut buffer = [0u8; BUFFER_SIZE];
 
+    // tempting to do stderr but rather rely on unix piping for this
     let stdin = io::stdin();
 
     let mut stdin_lock = stdin.lock();
@@ -48,13 +49,18 @@ fn main() -> () {
      */
     let mut loop_context = context;
     loop {
-
         match stdin_lock.read(&mut buffer) {
             Ok(bytes_read) => {
                 match process_input(&mut loop_context, &mut buffer, bytes_read) {
-                    None => {}
-                    Some(ctx) => {
+                    Err(err) => {
+                        println!("Error while processing input {:?}", err);
+                        break;
+                    }
+                    Ok(Some(ctx)) => {
                         loop_context = ctx;
+                    }
+                    _ => {
+                        // no file rotate, using the same context, or nothing was read from stdin
                     }
                 }
             }
@@ -67,22 +73,36 @@ fn main() -> () {
 }
 
 // encapsulates the process of calling the bytes handler to write to file and check for rotation
-fn process_input(context: &mut Context, buffer: &mut [u8; 1024], bytes_read: usize) -> Option<Context> {
+fn process_input(context: &mut Context, buffer: &mut [u8; 1024], bytes_read: usize) -> Result<Option<Context>, Error> {
     if bytes_read > 0 {
-        let context2 = context;
-        handle_std_bytes(context2, &buffer, bytes_read).expect("Cannot write to file");
-        match check_and_rotate(context2).unwrap() {
-            None => {}
-            Some(context_new) => {
-                return Some(context_new);
-            }
-        }
+        let res = write_buffer_to_outputs(context, &buffer, bytes_read);
+
+        return match res {
+            Ok(_) => { check_and_rotate(context) }
+            Err(err) => Err(err)
+        };
     }
-    return None;
+    return Ok(None);
 }
 
+// write to console and the current output file
+fn write_buffer_to_outputs(context: &mut Context, buff: &[u8; 1024], len: usize) -> Result<usize, Error> {
+
+    // write to stdout
+    println!("{}", String::from_utf8_lossy(buff));
+
+    // write to the current log file
+    let res = match context.current_file.write_all(&buff[..len]) {
+        Ok(_) => { Ok(len) }
+        Err(err) => { Err(err) }
+    };
+
+    return res;
+}
+
+
 // check if we need to rotate (roll) a file, if so, the file is renamed and a new file is created and set to the application context
-fn check_and_rotate(context: &mut Context) -> Result<Option<Context>, io::Error> {
+fn check_and_rotate(context: &mut Context) -> Result<Option<Context>, Error> {
     let file_metadata = context.current_file.metadata().unwrap();
     let file_size = file_metadata.len();
 
@@ -144,8 +164,3 @@ fn create_context(args: &Args) -> io::Result<Context> {
     });
 }
 
-// write to console and the current output file
-fn handle_std_bytes(context: &mut Context, buff: &[u8; 1024], len: usize) -> io::Result<()> {
-    println!("{}", String::from_utf8_lossy(buff));
-    return context.current_file.write_all(&buff[..len]);
-}
